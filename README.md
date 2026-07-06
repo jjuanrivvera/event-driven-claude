@@ -59,8 +59,34 @@ The `install.sh` binary is named `edc`; `go install` names it after the module
 (`event-driven-claude`) — match your `.mcp.json` / config `command` to whichever you used.
 
 ## Load it into a session
-The listener is **opt-in and fails closed** — it binds only when `EDC_INJECT_PORT` **and**
-`EDC_INJECT_SECRET` are both set.
+
+Two ways to load the channel. Both need a **port** and a **secret**: the listener is opt-in and
+**fails closed** — it binds only when both are set, so a session with neither is inert.
+
+### As a plugin (recommended)
+
+A plugin-loaded MCP server does **not** inherit your shell's environment, so the port and secret
+come from a config file at `~/.config/edc/config.json` (not `export`):
+
+```sh
+mkdir -p ~/.config/edc
+cat > ~/.config/edc/config.json <<EOF
+{ "inject_port": "8790", "inject_secret": "$(openssl rand -hex 24)" }
+EOF
+
+claude plugin marketplace add jjuanrivvera/event-driven-claude
+claude plugin install event-driven-claude@jjuanrivvera-edc
+claude --dangerously-load-development-channels plugin:event-driven-claude@jjuanrivvera-edc
+```
+
+The marketplace registers as `jjuanrivvera-edc` (hence the `@jjuanrivvera-edc` in the install).
+If you change the config later, restart the session — it's read once at startup.
+
+### As a project channel (`server:`)
+
+Point Claude at a `.mcp.json` that lists the server (this repo ships one) and supply the port and
+secret with **either** env vars or the same config file. Unlike the plugin path, `server:` **does**
+inherit your shell env:
 
 ```sh
 export EDC_INJECT_PORT=8790
@@ -69,20 +95,18 @@ export EDC_INJECT_SECRET="$(openssl rand -hex 24)"   # emitters need this exact 
 
 claude --dangerously-load-development-channels server:event-driven-claude
 ```
-`server:event-driven-claude` resolves from a `.mcp.json` that lists it (this repo ships one).
-On a fresh session confirm the "local development" prompt; a `Channels (experimental) … inject
-directly` line means the capability registered.
 
-**Or as a plugin.** Because a plugin-loaded server doesn't inherit the shell env, put the port
-and secret in `~/.config/edc/config.json` (see [Config](#config)) instead of exporting them:
+### Confirm it registered
 
-```sh
-claude plugin marketplace add jjuanrivvera/event-driven-claude
-claude plugin install event-driven-claude@jjuanrivvera-edc
-claude --dangerously-load-development-channels plugin:event-driven-claude@jjuanrivvera-edc
-```
+On a fresh session, accept the "local development" prompt. A `Channels (experimental) … inject
+directly` line means the capability registered; with `--debug-file <path>` you'll see
+`Channel notifications registered` in the log, and the listener answers on your port.
 
 ## Inject an event
+
+The emitter is any process on the box; it just needs the **same port and secret** you configured
+above (from env, the config file, wherever your emitter keeps it):
+
 ```sh
 curl -sS -XPOST "http://127.0.0.1:$EDC_INJECT_PORT/inject" \
   -H "Authorization: Bearer $EDC_INJECT_SECRET" \
