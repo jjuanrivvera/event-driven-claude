@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "jjuanrivvera-edc",
+  "description": "Event Driven Claude — make any Claude Code session injectable.",
+  "owner": {
+    "name": "Juan Felipe Rivera"
+  },
+  "plugins": [
+    {
+      "name": "event-driven-claude",
+      "description": "Transport-agnostic Claude Code channel: adds a local /inject HTTP endpoint so external events (crons, watchers, daemons) arrive as session turns. No chat transport, no tools — its only job is to make any session injectable.",
+      "author": {
+        "name": "Juan Felipe Rivera"
+      },
+      "category": "productivity",
+      "source": "."
+    }
+  ]
+}

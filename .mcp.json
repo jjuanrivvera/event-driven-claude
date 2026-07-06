@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "event-driven-claude": {
+      "command": "edc",
+      "env": {
+        "EDC_INJECT_PORT": "${EDC_INJECT_PORT}",
+        "EDC_INJECT_SECRET": "${EDC_INJECT_SECRET}",
+        "EDC_INJECT_BIND": "${EDC_INJECT_BIND}"
+      }
+    }
+  }
+}
