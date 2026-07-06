@@ -1,0 +1,45 @@
+version: 2
+project_name: event-driven-claude
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - binary: edc # the plugin's .mcp.json runs `command: "edc"`, so the binary must be named edc
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: jjuanrivvera
+    name: event-driven-claude
+  footer: |
+    ---
+    Built with [GoReleaser](https://goreleaser.com).
