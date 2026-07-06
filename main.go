@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -39,10 +40,23 @@ type fileConfig struct {
 func loadConfig() Config {
 	fc := loadConfigFile()
 	return Config{
-		InjectPort:   firstNonEmpty(os.Getenv("EDC_INJECT_PORT"), fc.InjectPort),
-		InjectSecret: firstNonEmpty(os.Getenv("EDC_INJECT_SECRET"), fc.InjectSecret),
-		InjectBind:   firstNonEmpty(os.Getenv("EDC_INJECT_BIND"), fc.InjectBind, "127.0.0.1"),
+		InjectPort:   firstNonEmpty(envClean("EDC_INJECT_PORT"), fc.InjectPort),
+		InjectSecret: firstNonEmpty(envClean("EDC_INJECT_SECRET"), fc.InjectSecret),
+		InjectBind:   firstNonEmpty(envClean("EDC_INJECT_BIND"), fc.InjectBind, "127.0.0.1"),
 	}
+}
+
+// envClean reads an env var but treats an unexpanded "${VAR}" placeholder as unset. A plugin
+// manifest that maps env like "EDC_INJECT_PORT": "${EDC_INJECT_PORT}" gets that literal passed
+// through verbatim when the var isn't set in the host's environment (Claude Code does this on the
+// plugin load path). Without this guard the literal would win over the config file and the
+// listener would try to bind a garbage port. So on the plugin path the config file is the source.
+func envClean(key string) string {
+	v := os.Getenv(key)
+	if strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}") {
+		return ""
+	}
+	return v
 }
 
 // loadConfigFile reads $EDC_CONFIG, else $XDG_CONFIG_HOME/edc/config.json, else

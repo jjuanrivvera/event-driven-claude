@@ -160,6 +160,28 @@ func TestLoadConfig_EnvOverridesFileOverridesDefault(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_IgnoresUnexpandedEnvPlaceholder(t *testing.T) {
+	// The plugin load path: Claude Code passes the manifest's "${EDC_INJECT_PORT}" through
+	// verbatim when the var isn't set. That literal must NOT win over the config file, or the
+	// listener tries to bind a garbage port and never comes up.
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(cfg, []byte(`{"inject_port":"8794","inject_secret":"fromfile"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDC_CONFIG", cfg)
+	t.Setenv("EDC_INJECT_PORT", "${EDC_INJECT_PORT}")
+	t.Setenv("EDC_INJECT_SECRET", "${EDC_INJECT_SECRET}")
+	t.Setenv("EDC_INJECT_BIND", "${EDC_INJECT_BIND}")
+
+	c := loadConfig()
+	if c.InjectPort != "8794" || c.InjectSecret != "fromfile" {
+		t.Fatalf("unexpanded ${...} placeholder must be treated as unset so the file wins: %+v", c)
+	}
+	if c.InjectBind != "127.0.0.1" {
+		t.Fatalf("placeholder bind must fall back to loopback default, got %q", c.InjectBind)
+	}
+}
+
 func TestLoadConfig_MissingFileFailsClosedWithBindDefault(t *testing.T) {
 	t.Setenv("EDC_CONFIG", filepath.Join(t.TempDir(), "does-not-exist.json"))
 	t.Setenv("EDC_INJECT_PORT", "")

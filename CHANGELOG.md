@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.2
+
+- Fix the plugin load path. Claude Code passes a plugin manifest's `"${EDC_INJECT_PORT}"` through
+  **verbatim** (unexpanded) when the var isn't set in the host env, and that literal was winning
+  over the config file — the listener tried to bind a garbage port and never came up. `edc` now
+  treats an unexpanded `${...}` value as unset, so the config file is the source on the plugin
+  path. The shipped `.mcp.json` also drops its `env` block (it only produced those placeholders).
+  With this, `claude plugin install` + `~/.config/edc/config.json` brings the `/inject` listener
+  up. Verified end-to-end.
+
 ## v0.1.1
 
 - Config file support: `edc` reads `inject_port` / `inject_secret` / `inject_bind` from
