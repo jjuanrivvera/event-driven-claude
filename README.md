@@ -49,8 +49,14 @@ actually arrives — no idle-polling bill, no matter how many sessions you run.
 
 ## Install
 ```sh
-go build -o ~/bin/edc .        # or drop a release binary on your PATH
+# checksum-verified release binary onto your PATH (~/.local/bin by default)
+curl -fsSL https://raw.githubusercontent.com/jjuanrivvera/event-driven-claude/main/install.sh | sh
+
+# or, with a Go toolchain:
+go install github.com/jjuanrivvera/event-driven-claude@latest   # installs as `event-driven-claude`
 ```
+The `install.sh` binary is named `edc`; `go install` names it after the module
+(`event-driven-claude`) — match your `.mcp.json` / config `command` to whichever you used.
 
 ## Load it into a session
 The listener is **opt-in and fails closed** — it binds only when `EDC_INJECT_PORT` **and**
