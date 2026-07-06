@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit config for event-driven-claude (edc): a small, hand-rolled MCP stdio channel.
+reviews:
+  profile: chill
+  poem: false
+  sequence_diagrams: false
+  auto_review:
+    ignore_title_keywords: ["WIP", "release:", "build(deps)"]
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Comments explain WHY, not WHAT. This is an MCP stdio server: NOTHING may write to stdout
+        except the JSON-RPC encoder (out.send) — a stray fmt.Print or log-to-stdout corrupts the
+        protocol and breaks channel registration. Guard the /inject trust boundary: meta.source must
+        always be "system", auth must stay a constant-time compare, request bodies stay bounded, and
+        the listener must fail closed (no secret ⇒ no bind). Flag any new panic (a panic in a goroutine
+        crashes the whole channel), unchecked error, or goroutine leak.
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer table-driven tests. Cover the security-critical paths — auth rejection, the
+        source="system" boundary, and context (ctx_*) namespacing — not just the happy path.
+knowledge_base:
+  code_guidelines:
+    enabled: true
