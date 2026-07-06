@@ -32,7 +32,7 @@ func TestBuildInjectNotification_TrustBoundary(t *testing.T) {
 	// A caller trying to impersonate a human or shadow reserved fields must not succeed.
 	req := injectRequest{
 		Source:  "CRON",
-		Event:   "gym_missed",
+		Event:   "build_failed",
 		Text:    "hi",
 		Context: map[string]string{"source": "telegram", "user_id": "999", "date": "2026-07-14"},
 	}

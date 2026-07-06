@@ -26,7 +26,7 @@ const injectMaxBody = 64 << 10 // 64 KiB is plenty for an event; refuse anything
 
 type injectRequest struct {
 	Source  string            `json:"source"`  // caller-declared origin, e.g. "CRON", "HA"
-	Event   string            `json:"event"`   // optional machine-readable key, e.g. "gym_day_missed"
+	Event   string            `json:"event"`   // optional machine-readable key, e.g. "build_failed"
 	Text    string            `json:"text"`    // required human-readable event description
 	Context map[string]string `json:"context"` // optional extra key/values, relayed verbatim
 }

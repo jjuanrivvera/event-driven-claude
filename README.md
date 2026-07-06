@@ -10,13 +10,12 @@ events, not only by a person typing.
 ## The problem
 
 A Claude Code session is **reactive**: it does nothing until a human types. There is no clean
-way for the rest of your system — cron jobs, file/log watchers, home automation, a `slackctl
-listen`, another agent — to hand the running session an event or context. The usual workarounds
+way for the rest of your system — cron jobs, file/log watchers, home automation, a chat/DM
+listener, another agent — to hand the running session an event or context. The usual workarounds
 are all bad:
 
 - **A polling loop inside the session** (`/loop 5m` reading a file): burns model tokens on
-  every tick even when nothing happened. This is exactly what killed a real always-on autopilot
-  — it hit its daily cost cap in one morning and got disabled.
+  every tick even when nothing happened — wasteful, and worse the more sessions you run.
 - **A second bot / a chat transport**: bots can't message themselves, and it couples the
   session to Telegram/Slack/whatever just to receive a local event.
 - **Nothing**: the session simply can't be woken by the world around it.
@@ -34,15 +33,15 @@ turn.** That is the one thing this plugin fixes.
    into the session as a turn (`notifications/claude/channel`, `meta.source="system"`).
 
 That's the whole thing. **No Telegram, no poller, no outbound transport, no tools** — the
-distilled core of `tgctl-claude-channel` with everything transport-specific removed. Because
-it's transport-agnostic it runs on the Mac, the PC, or a server, for any session, with no bot
-and no collision.
+distilled core of [`tgctl-claude-channel`](https://github.com/jjuanrivvera/tgctl-claude-channel)
+(a Telegram channel for Claude Code) with everything transport-specific removed. Because it's
+transport-agnostic it runs anywhere, for any session, with no bot and no collision.
 
 **Event-driven, not polling** ⇒ the session sleeps at **zero token cost** until an event
-actually arrives. That is why it dodges the cost trap that killed the polling approach.
+actually arrives — no idle-polling bill, no matter how many sessions you run.
 
 ```
-[ cron / watcher / slackctl listen / another agent ]
+[ cron / file watcher / log tailer / another agent ]
         │  POST /inject  (Bearer secret)
         ▼
    edc (MCP stdio server)  ── notifications/claude/channel ──▶  the Claude session (a new turn)
@@ -74,13 +73,13 @@ directly` line means the capability registered. _(Also installable as a marketpl
 ```sh
 curl -sS -XPOST "http://127.0.0.1:$EDC_INJECT_PORT/inject" \
   -H "Authorization: Bearer $EDC_INJECT_SECRET" \
-  -d '{"source":"CRON","event":"sura_deadline","text":"SURA recibo vence en 8 días","context":{"date":"2026-07-14"}}'
+  -d '{"source":"CI","event":"build_failed","text":"main build failed at step \"test\"","context":{"commit":"a1b2c3d"}}'
 ```
 Arrives in the session as:
 ```json
-{ "content": "SURA recibo vence en 8 días",
-  "meta": { "source": "system", "injected_by": "CRON", "event": "sura_deadline",
-            "ts": "…", "ctx_date": "2026-07-14" } }
+{ "content": "main build failed at step \"test\"",
+  "meta": { "source": "system", "injected_by": "CI", "event": "build_failed",
+            "ts": "…", "ctx_commit": "a1b2c3d" } }
 ```
 
 ## Security (what was built around it)
