@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1
+
+- Config file support: `edc` reads `inject_port` / `inject_secret` / `inject_bind` from
+  `~/.config/edc/config.json` (override with `$EDC_CONFIG`) when the env vars aren't set — env
+  still takes precedence. This makes the plugin install path work: a plugin-loaded MCP server
+  doesn't inherit the launching shell's env, so the file is how you hand it a port and secret.
+
 ## v0.1.0
 
 Initial release.

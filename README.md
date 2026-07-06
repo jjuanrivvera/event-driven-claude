@@ -65,9 +65,16 @@ claude --dangerously-load-development-channels server:event-driven-claude
 ```
 `server:event-driven-claude` resolves from a `.mcp.json` that lists it (this repo ships one).
 On a fresh session confirm the "local development" prompt; a `Channels (experimental) … inject
-directly` line means the capability registered. _(Also installable as a marketplace plugin:
-`claude plugin marketplace add jjuanrivvera/event-driven-claude` →
-`claude plugin install event-driven-claude@jjuanrivvera-edc`.)_
+directly` line means the capability registered.
+
+**Or as a plugin.** Because a plugin-loaded server doesn't inherit the shell env, put the port
+and secret in `~/.config/edc/config.json` (see [Config](#config)) instead of exporting them:
+
+```sh
+claude plugin marketplace add jjuanrivvera/event-driven-claude
+claude plugin install event-driven-claude@jjuanrivvera-edc
+claude --dangerously-load-development-channels plugin:event-driven-claude@jjuanrivvera-edc
+```
 
 ## Inject an event
 ```sh
@@ -126,8 +133,17 @@ The `/inject` endpoint can create a turn in your agent, so it is guarded deliber
   prompt, plugin enabled-state, and a clean binary build all matter for the capability to register.
 
 ## Config
-| Env | Meaning |
-|---|---|
-| `EDC_INJECT_PORT` | listener port; unset ⇒ listener off |
-| `EDC_INJECT_SECRET` | required Bearer secret; unset ⇒ refuses to bind (fail closed) |
-| `EDC_INJECT_BIND` | bind address, default `127.0.0.1` (set a Tailscale/LAN IP for remote emitters) |
+Values come from env vars first, then a config file at `~/.config/edc/config.json` (override the
+path with `$EDC_CONFIG`). The file is what makes the **plugin install path** work: a plugin-loaded
+MCP server doesn't inherit the launching shell's env, so the file is how you hand it a port and
+secret there.
+
+```json
+{ "inject_port": "8790", "inject_secret": "a-long-random-secret", "inject_bind": "127.0.0.1" }
+```
+
+| Env | Config file | Meaning |
+|---|---|---|
+| `EDC_INJECT_PORT` | `inject_port` | listener port; unset ⇒ listener off |
+| `EDC_INJECT_SECRET` | `inject_secret` | required Bearer secret; unset ⇒ refuses to bind (fail closed) |
+| `EDC_INJECT_BIND` | `inject_bind` | bind address, default `127.0.0.1` (a Tailscale/LAN IP for remote emitters) |

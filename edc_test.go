@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -130,4 +132,44 @@ func TestHandleInject(t *testing.T) {
 			t.Fatalf("want 405, got %d", rec.Code)
 		}
 	})
+}
+
+func TestLoadConfig_EnvOverridesFileOverridesDefault(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(cfg, []byte(`{"inject_port":"9000","inject_secret":"fromfile","inject_bind":"1.2.3.4"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDC_CONFIG", cfg)
+
+	// Nothing in the env: the file wins (this is the plugin path, where the shell env
+	// never reaches the process).
+	t.Setenv("EDC_INJECT_PORT", "")
+	t.Setenv("EDC_INJECT_SECRET", "")
+	t.Setenv("EDC_INJECT_BIND", "")
+	c := loadConfig()
+	if c.InjectPort != "9000" || c.InjectSecret != "fromfile" || c.InjectBind != "1.2.3.4" {
+		t.Fatalf("config file not applied: %+v", c)
+	}
+
+	// An env var beats the file.
+	t.Setenv("EDC_INJECT_PORT", "8790")
+	t.Setenv("EDC_INJECT_SECRET", "fromenv")
+	c = loadConfig()
+	if c.InjectPort != "8790" || c.InjectSecret != "fromenv" {
+		t.Fatalf("env must override the file: %+v", c)
+	}
+}
+
+func TestLoadConfig_MissingFileFailsClosedWithBindDefault(t *testing.T) {
+	t.Setenv("EDC_CONFIG", filepath.Join(t.TempDir(), "does-not-exist.json"))
+	t.Setenv("EDC_INJECT_PORT", "")
+	t.Setenv("EDC_INJECT_SECRET", "")
+	t.Setenv("EDC_INJECT_BIND", "")
+	c := loadConfig()
+	if c.InjectPort != "" || c.InjectSecret != "" {
+		t.Fatalf("no config anywhere should leave port/secret empty (listener stays off): %+v", c)
+	}
+	if c.InjectBind != "127.0.0.1" {
+		t.Fatalf("bind should default to loopback, got %q", c.InjectBind)
+	}
 }
