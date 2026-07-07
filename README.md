@@ -85,11 +85,19 @@ EOF
 [Configuration reference](#configuration-reference)). If you change the config later, restart
 the session — it's read once at startup.
 
-**2. Authorize the plugin as a channel (once, requires sudo).** For installed plugins, Claude
-Code reads the channel allowlist ONLY from managed settings — user `settings.json` is ignored
-by design, so a process running as your user can't self-authorize an injection channel:
+**2. Authorize the plugin as a channel (once, requires admin rights).** For installed plugins,
+Claude Code reads the channel allowlist ONLY from managed settings — user `settings.json` is
+ignored by design, so a process running as your user can't self-authorize an injection channel.
+The managed settings file lives at:
+
+| OS | Path |
+|---|---|
+| macOS | `/Library/Application Support/ClaudeCode/managed-settings.json` |
+| Linux | `/etc/claude-code/managed-settings.json` |
+| Windows | `C:\ProgramData\ClaudeCode\managed-settings.json` |
 
 ```sh
+# macOS shown; on Linux use /etc/claude-code/managed-settings.json
 sudo mkdir -p "/Library/Application Support/ClaudeCode" && sudo tee "/Library/Application Support/ClaudeCode/managed-settings.json" > /dev/null <<'JSON'
 {
   "allowedChannelPlugins": [
@@ -99,9 +107,10 @@ sudo mkdir -p "/Library/Application Support/ClaudeCode" && sudo tee "/Library/Ap
 JSON
 ```
 
-The schema is an **array of `{marketplace, plugin}` objects** (not strings). On Linux the file
-is `/etc/claude-code/managed-settings.json`. See
-[Channel authorization](#channel-authorization-the-gates) for why this lives at the machine level.
+On Windows, create the file at the path above from an elevated (Administrator) shell with the
+same JSON content. The schema is an **array of `{marketplace, plugin}` objects** (not strings).
+See [Channel authorization](#channel-authorization-the-gates) for why this lives at the
+machine level.
 
 **3. Launch a session that requests the channel** (every launch):
 
@@ -127,7 +136,8 @@ The session wakes with the event as a new turn.
 ## Configuration reference
 
 Values come from **env vars first, then the config file** at `~/.config/edc/config.json`
-(override the path with `$EDC_CONFIG`; `$XDG_CONFIG_HOME/edc/config.json` is respected). The
+(override the path with `$EDC_CONFIG`; `$XDG_CONFIG_HOME/edc/config.json` is respected).
+The same layout applies on every OS — on Windows `~` is `%USERPROFILE%`. The
 file is what makes the plugin install path work — a plugin-loaded MCP server doesn't inherit
 the launching shell's env. On the `server:` path (a `.mcp.json` entry), env vars **do** work.
 A manifest env value passed through unexpanded (a literal `${...}`) is treated as unset.
@@ -149,14 +159,18 @@ A manifest env value passed through unexpanded (a literal `${...}`) is treated a
 `edc` runs **one process per Claude Code session**, and sessions can't share a port. With
 `"auto"` the kernel picks the port, so emitters discover it through a per-session **state file**:
 
-- Path: `~/.local/state/edc/<session_id>.json` (mode `0600`). `<session_id>` is
-  `$CLAUDE_SESSION_ID` when the host exports it (the MCP handshake carries no session id),
-  else `pid-<pid>`. Session ids are sanitized to stay filesystem-safe.
+- Path: `$XDG_STATE_HOME/edc/<session_id>.json`, defaulting to
+  `~/.local/state/edc/<session_id>.json` — the same layout on every OS (on Windows the home
+  directory is `%USERPROFILE%`). Mode `0600`. `<session_id>` is `$CLAUDE_SESSION_ID` when the
+  host exports it (the MCP handshake carries no session id), else `pid-<pid>`. Session ids are
+  sanitized to stay filesystem-safe.
 - Content: `{ "port": 52341, "pid": 48210, "bind": "127.0.0.1" }`
 - Lifecycle: written when the listener binds; removed on clean exit (stdin EOF or
   SIGTERM/SIGINT). Emitters should trust a file **only while its `pid` is alive**
-  (`kill -0 <pid>`).
-- Orphans left by crashed sessions (dead pid) are reaped at the next `edc` startup.
+  (`kill -0 <pid>` on unix).
+- Orphans left by crashed sessions (dead pid) are reaped at the next `edc` startup — except on
+  Windows, where there is no cheap signal-0 liveness check, so pids are assumed alive and stale
+  files are removed by clean exits only.
 
 ## Injecting events
 
@@ -205,11 +219,10 @@ for — cheap deterministic sensor outside, expensive reasoning inside.
 Emitting the notification is not enough: **Claude Code gates injected turns behind two explicit
 opt-ins**, and silently drops them otherwise.
 
-1. **Machine-level allowlist (once, requires sudo).** For *installed* plugins, the allowlist is
-   read ONLY from managed settings (`/Library/Application Support/ClaudeCode/managed-settings.json`
-   on macOS, `/etc/claude-code/managed-settings.json` on Linux) — see
-   [Quick start step 2](#quick-start) for the exact file. The schema is an array of
-   `{marketplace, plugin}` objects, not strings.
+1. **Machine-level allowlist (once, requires admin rights).** For *installed* plugins, the
+   allowlist is read ONLY from managed settings — see the per-OS path table in
+   [Quick start step 2](#quick-start). The schema is an array of `{marketplace, plugin}`
+   objects, not strings.
 
 2. **Per-session opt-in (every launch).** Sessions accept channel turns only when started with:
 
@@ -232,8 +245,10 @@ plugin path, inherits your shell env, so `export EDC_INJECT_PORT=... EDC_INJECT_
 works there.
 
 **Verify**: the plugin's MCP log
-(`~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-plugin-event-driven-claude-*/*.jsonl`,
-or the log named by `--debug-file`) should show `Channel notifications registered`;
+(`<cache>/claude-cli-nodejs/<project>/mcp-logs-plugin-event-driven-claude-*/*.jsonl`, where
+`<cache>` is `~/Library/Caches` on macOS, `~/.cache` on Linux, or the Claude Code cache
+directory for your OS; or the log named by `--debug-file`) should show
+`Channel notifications registered`;
 `Channel notifications skipped: …` means one of the two gates is missing.
 **A `202` from `/inject` means edc accepted and emitted the event — delivery is decided by
 these gates on the Claude Code side.**
@@ -294,4 +309,4 @@ The `/inject` endpoint can create a turn in your agent, so it is guarded deliber
 | State file is named `pid-<pid>.json` instead of a session id | The host didn't export `CLAUDE_SESSION_ID` (the MCP handshake carries no session id) | Export `CLAUDE_SESSION_ID` in the launch environment, or key discovery off the pid-named file (the `pid` field still tells you liveness) |
 | Listener never binds, log says `a port is configured but no secret` | Fail-closed: a port with no secret never binds | Set `inject_secret` in the config file (plugin path) or `EDC_INJECT_SECRET` (server path) |
 | Config change has no effect | Config is read once at startup | Restart the session |
-| Emitters find a port that no longer answers | Stale state file from a crashed session | Trust a state file only while its `pid` is alive (`kill -0`); orphans are reaped at the next `edc` startup |
+| Emitters find a port that no longer answers | Stale state file from a crashed session | Trust a state file only while its `pid` is alive (`kill -0` on unix); orphans are reaped at the next `edc` startup (unix only — on Windows stale files are removed by clean exits) |
