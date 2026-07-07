@@ -17,7 +17,7 @@ import (
 	"syscall"
 )
 
-var version = "0.1.0"
+var version = "0.2.0"
 
 // Config is the inject listener's config. The channel capability itself needs nothing; the
 // HTTP listener is opt-in and fails closed without a secret. Values come from env vars first,
@@ -25,7 +25,7 @@ var version = "0.1.0"
 // doesn't inherit the launching shell's env, so the file is how you hand it a port and secret
 // there.
 type Config struct {
-	InjectPort   string // EDC_INJECT_PORT / inject_port — listener off unless set
+	InjectPort   string // EDC_INJECT_PORT / inject_port — explicit port; "auto"/empty = per-session kernel-assigned port
 	InjectSecret string // EDC_INJECT_SECRET / inject_secret — required to bind (fail closed)
 	InjectBind   string // EDC_INJECT_BIND / inject_bind — default 127.0.0.1; a Tailscale/LAN IP for remote emitters
 }
@@ -103,13 +103,25 @@ func main() {
 	cfg := loadConfig()
 	srv := &server{out: newOut(os.Stdout), cfg: cfg}
 
-	// SIGTERM/SIGINT just let the process exit; the listener goroutine dies with it.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	_ = ctx
+
+	// Reap state files left behind by sessions that died without cleanup (kill -9, crash,
+	// reboot) before this process writes its own.
+	cleanOrphanStateFiles(stateDir())
 
 	go srv.runInject()
 
-	// Blocks until Claude Code closes the MCP pipe (stdin EOF), then we exit.
-	srv.serve(os.Stdin)
+	// Serve until Claude Code closes the MCP pipe (stdin EOF) or a signal arrives — either
+	// way, drop the state file so emitters stop discovering a dead listener.
+	done := make(chan struct{})
+	go func() {
+		srv.serve(os.Stdin)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+	srv.removeStateFile()
 }

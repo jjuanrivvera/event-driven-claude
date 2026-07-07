@@ -71,7 +71,7 @@ come from a config file at `~/.config/edc/config.json` (not `export`):
 ```sh
 mkdir -p ~/.config/edc
 cat > ~/.config/edc/config.json <<EOF
-{ "inject_port": "8790", "inject_secret": "$(openssl rand -hex 24)" }
+{ "inject_port": "auto", "inject_secret": "$(openssl rand -hex 24)" }
 EOF
 
 claude plugin marketplace add jjuanrivvera/event-driven-claude
@@ -89,7 +89,7 @@ secret with **either** env vars or the same config file. Unlike the plugin path,
 inherit your shell env:
 
 ```sh
-export EDC_INJECT_PORT=8790
+export EDC_INJECT_PORT=auto                          # or an explicit port like 8790
 export EDC_INJECT_SECRET="$(openssl rand -hex 24)"   # emitters need this exact value
 # export EDC_INJECT_BIND=100.x.y.z                    # optional: a Tailscale/LAN IP (default 127.0.0.1)
 
@@ -102,10 +102,33 @@ On a fresh session, accept the "local development" prompt. A `Channels (experime
 directly` line means the capability registered; with `--debug-file <path>` you'll see
 `Channel notifications registered` in the log, and the listener answers on your port.
 
+## Ports and per-session discovery (v0.2)
+
+`edc` runs **one process per Claude Code session**, and sessions can't share a port. With an
+explicit `inject_port`, only the first session on the machine binds — every other session comes
+up with no listener. So the default is now **automatic ports**:
+
+- `inject_port: "auto"` (or empty) ⇒ each session binds `127.0.0.1:0` (respecting `inject_bind`)
+  and gets its own kernel-assigned port. An explicit numeric port keeps the old single-session
+  behavior.
+- When the listener comes up, `edc` publishes a **state file** at
+  `~/.local/state/edc/<session_id>.json` (mode `0600`):
+
+  ```json
+  { "port": 52341, "pid": 48210, "bind": "127.0.0.1" }
+  ```
+
+  `<session_id>` is `$CLAUDE_SESSION_ID` when the host exports it (the MCP handshake carries no
+  session id), else `pid-<pid>`.
+- Emitters/hooks discover the port by reading the state file for their session and using it
+  **only while its `pid` is alive** (`kill -0 <pid>`). The file is removed on clean exit
+  (stdin EOF or SIGTERM/SIGINT), and orphans left by crashed sessions are reaped at the next
+  `edc` startup.
+
 ## Inject an event
 
-The emitter is any process on the box; it just needs the **same port and secret** you configured
-above (from env, the config file, wherever your emitter keeps it):
+The emitter is any process on the box; it just needs the **port** (explicit, or read from the
+session's state file) **and the secret** you configured above:
 
 ```sh
 curl -sS -XPOST "http://127.0.0.1:$EDC_INJECT_PORT/inject" \
@@ -123,8 +146,8 @@ Arrives in the session as:
 
 The `/inject` endpoint can create a turn in your agent, so it is guarded deliberately:
 
-- **Fail closed.** No listener unless both the port **and** a secret are set. A port with no
-  secret logs an error and never binds — there is no such thing as an unauthenticated listener.
+- **Fail closed.** No listener without a secret — a configured port with no secret logs an
+  error and never binds. There is no such thing as an unauthenticated listener.
 - **Authenticated, constant-time.** Every request needs `Authorization: Bearer <secret>`,
   compared with `crypto/subtle` (timing-attack resistant). No/wrong secret ⇒ `401` **and no turn
   is emitted**.
@@ -151,8 +174,9 @@ The `/inject` endpoint can create a turn in your agent, so it is guarded deliber
   emitted*, not that the model processed it. There is **no queue, no retry, no history, no ack**.
   If the session is down or the channel didn't load, the event is lost — the **emitter** must
   handle that (fall back, queue, or drop).
-- **One listener per session.** Each injectable session needs its own `EDC_INJECT_PORT`; sessions
-  can't share a port. Fan-out to several sessions is the emitter's job (post to each port).
+- **One listener per session.** Sessions can't share a port — use `inject_port: "auto"` so each
+  gets its own, discovered via the per-session state file. Fan-out to several sessions is the
+  emitter's job (post to each port).
 - **The plugin is a pipe, not a gate — cost lives on the emitter.** Every injected event wakes
   the session and spends tokens. `edc` does **no** filtering; the emitter must pre-filter and only
   inject what is worth waking the model for. (This is the whole point of "cheap deterministic
@@ -169,11 +193,13 @@ MCP server doesn't inherit the launching shell's env, so the file is how you han
 secret there.
 
 ```json
-{ "inject_port": "8790", "inject_secret": "a-long-random-secret", "inject_bind": "127.0.0.1" }
+{ "inject_port": "auto", "inject_secret": "a-long-random-secret", "inject_bind": "127.0.0.1" }
 ```
 
 | Env | Config file | Meaning |
 |---|---|---|
-| `EDC_INJECT_PORT` | `inject_port` | listener port; unset ⇒ listener off |
+| `EDC_INJECT_PORT` | `inject_port` | `"auto"` or empty ⇒ per-session kernel-assigned port (published in the state file); a number ⇒ that exact port |
 | `EDC_INJECT_SECRET` | `inject_secret` | required Bearer secret; unset ⇒ refuses to bind (fail closed) |
 | `EDC_INJECT_BIND` | `inject_bind` | bind address, default `127.0.0.1` (a Tailscale/LAN IP for remote emitters) |
+| `CLAUDE_SESSION_ID` | — | names the state file `~/.local/state/edc/<session_id>.json`; unset ⇒ `pid-<pid>` |
+| `XDG_STATE_HOME` | — | state dir base, default `~/.local/state` |

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -18,9 +19,11 @@ import (
 // the model can tell events from people. This is the entire point of the plugin: any session
 // that loads it becomes injectable.
 //
-// Disabled unless EDC_INJECT_PORT is set. Fails closed: a port without a secret logs an error
-// and never binds. The server always overwrites meta.source — a caller can declare where an
-// event came from (injected_by) but can never impersonate an authenticated sender.
+// Fails closed: without a secret it never binds, no matter what the port says. With a secret,
+// the port may be explicit, or "auto"/empty for a kernel-assigned per-session port ("127.0.0.1:0")
+// published through the state file (state.go) so emitters can find it. The server always
+// overwrites meta.source — a caller can declare where an event came from (injected_by) but can
+// never impersonate an authenticated sender.
 
 const injectMaxBody = 64 << 10 // 64 KiB is plenty for an event; refuse anything bigger
 
@@ -31,21 +34,16 @@ type injectRequest struct {
 	Context map[string]string `json:"context"` // optional extra key/values, relayed verbatim
 }
 
-// runInject binds the local listener and serves for the life of the process. No-op when the
-// feature is not configured.
+// runInject binds the local listener, publishes the state file, and serves for the life of
+// the process. No-op when the feature is not configured.
 func (s *server) runInject() {
-	if s.cfg.InjectPort == "" {
+	ln := s.startInject()
+	if ln == nil {
 		return
 	}
-	if s.cfg.InjectSecret == "" {
-		log.Printf("inject: EDC_INJECT_PORT is set but no secret is configured (EDC_INJECT_SECRET); refusing to start an unauthenticated listener")
-		return
-	}
-	addr := net.JoinHostPort(s.cfg.InjectBind, s.cfg.InjectPort)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inject", s.handleInject)
 	srv := &http.Server{
-		Addr:    addr,
 		Handler: mux,
 		// Bounds slow/Slowloris clients on a listener that can bind a Tailscale/LAN
 		// address (EDC_INJECT_BIND), not just loopback.
@@ -54,10 +52,43 @@ func (s *server) runInject() {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	log.Printf("inject: listening on %s", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	log.Printf("inject: listening on %s", ln.Addr())
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Printf("inject: listener stopped: %v", err)
 	}
+}
+
+// startInject binds the listener and writes the per-session state file. Returns nil when the
+// feature is off (no secret ⇒ fail closed) or the bind fails.
+func (s *server) startInject() net.Listener {
+	if s.cfg.InjectSecret == "" {
+		if s.cfg.InjectPort != "" {
+			log.Printf("inject: a port is configured but no secret (EDC_INJECT_SECRET); refusing to start an unauthenticated listener")
+		}
+		return nil
+	}
+	port := s.cfg.InjectPort
+	if port == "" || port == "auto" {
+		// One edc runs per session: an explicit port lets only the first session bind.
+		// Port 0 hands each session its own kernel-assigned port instead.
+		port = "0"
+	}
+	addr := net.JoinHostPort(s.cfg.InjectBind, port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("inject: cannot bind %s: %v", addr, err)
+		return nil
+	}
+	boundPort := ln.Addr().(*net.TCPAddr).Port
+	st := stateFile{Port: boundPort, PID: os.Getpid(), Bind: s.cfg.InjectBind}
+	if path, err := writeStateFile(stateDir(), sessionID(), st); err != nil {
+		// Discovery degrades (emitters that rely on the state file won't find us) but the
+		// listener itself still works for anyone who knows the port.
+		log.Printf("inject: cannot write state file: %v", err)
+	} else {
+		s.setStatePath(path)
+	}
+	return ln
 }
 
 func (s *server) handleInject(w http.ResponseWriter, r *http.Request) {

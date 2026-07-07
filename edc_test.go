@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +196,171 @@ func TestLoadConfig_MissingFileFailsClosedWithBindDefault(t *testing.T) {
 	}
 	if c.InjectBind != "127.0.0.1" {
 		t.Fatalf("bind should default to loopback, got %q", c.InjectBind)
+	}
+}
+
+func TestStartInject_AutoPortTwoInstancesDoNotCollide(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("CLAUDE_SESSION_ID", "")
+
+	newAuto := func(sid string) *server {
+		t.Setenv("CLAUDE_SESSION_ID", sid)
+		return &server{out: newOut(&bytes.Buffer{}), cfg: Config{
+			InjectPort: "auto", InjectSecret: "sekret", InjectBind: "127.0.0.1",
+		}}
+	}
+	s1 := newAuto("sess-1")
+	ln1 := s1.startInject()
+	if ln1 == nil {
+		t.Fatal("first auto listener failed to bind")
+	}
+	defer ln1.Close()
+
+	s2 := newAuto("sess-2")
+	ln2 := s2.startInject()
+	if ln2 == nil {
+		t.Fatal("second auto listener failed to bind — auto ports must not collide")
+	}
+	defer ln2.Close()
+
+	p1 := ln1.Addr().(*net.TCPAddr).Port
+	p2 := ln2.Addr().(*net.TCPAddr).Port
+	if p1 == 0 || p2 == 0 || p1 == p2 {
+		t.Fatalf("expected two distinct kernel-assigned ports, got %d and %d", p1, p2)
+	}
+}
+
+func TestStartInject_ExplicitPortStillWorks(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	// Grab a free port, release it, then ask edc to bind it explicitly.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	probe.Close()
+
+	s := &server{out: newOut(&bytes.Buffer{}), cfg: Config{
+		InjectPort: strconv.Itoa(port), InjectSecret: "sekret", InjectBind: "127.0.0.1",
+	}}
+	ln := s.startInject()
+	if ln == nil {
+		t.Fatal("explicit port failed to bind")
+	}
+	defer ln.Close()
+	if got := ln.Addr().(*net.TCPAddr).Port; got != port {
+		t.Fatalf("explicit port not honored: want %d, got %d", port, got)
+	}
+}
+
+func TestStartInject_NoSecretFailsClosed(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	s := &server{out: newOut(&bytes.Buffer{}), cfg: Config{InjectPort: "auto", InjectBind: "127.0.0.1"}}
+	if ln := s.startInject(); ln != nil {
+		ln.Close()
+		t.Fatal("a listener without a secret must never bind")
+	}
+}
+
+func TestStateFileWrittenAndRemoved(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("CLAUDE_SESSION_ID", "test-session-abc")
+
+	s := &server{out: newOut(&bytes.Buffer{}), cfg: Config{
+		InjectPort: "auto", InjectSecret: "sekret", InjectBind: "127.0.0.1",
+	}}
+	ln := s.startInject()
+	if ln == nil {
+		t.Fatal("listener failed to bind")
+	}
+	defer ln.Close()
+
+	path := filepath.Join(stateHome, "edc", "test-session-abc.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("state file not written: %v", err)
+	}
+	fi, _ := os.Stat(path)
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("state file must be 0600, got %v", fi.Mode().Perm())
+	}
+	var st stateFile
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("state file is not JSON: %v", err)
+	}
+	if want := ln.Addr().(*net.TCPAddr).Port; st.Port != want {
+		t.Fatalf("state file port %d != bound port %d", st.Port, want)
+	}
+	if st.PID != os.Getpid() {
+		t.Fatalf("state file pid %d != own pid %d", st.PID, os.Getpid())
+	}
+	if st.Bind != "127.0.0.1" {
+		t.Fatalf("state file bind: %q", st.Bind)
+	}
+
+	s.removeStateFile()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("state file must be removed on shutdown")
+	}
+	s.removeStateFile() // idempotent
+}
+
+func TestCleanOrphanStateFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// A pid that existed and is now dead.
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	deadPID := cmd.Process.Pid
+
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	live := write("live.json", `{"port":1234,"pid":`+strconv.Itoa(os.Getpid())+`,"bind":"127.0.0.1"}`)
+	dead := write("dead.json", `{"port":5678,"pid":`+strconv.Itoa(deadPID)+`,"bind":"127.0.0.1"}`)
+	garbage := write("garbage.json", `not json`)
+	other := write("notes.txt", `not a state file`)
+
+	cleanOrphanStateFiles(dir)
+
+	if _, err := os.Stat(live); err != nil {
+		t.Fatal("state file of a live pid must survive cleanup")
+	}
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Fatal("state file of a dead pid must be reaped")
+	}
+	if _, err := os.Stat(garbage); !os.IsNotExist(err) {
+		t.Fatal("unparseable state file must be reaped")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatal("non-JSON files must be left alone")
+	}
+}
+
+func TestSessionID(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "abc-123")
+	if got := sessionID(); got != "abc-123" {
+		t.Fatalf("sessionID: %q", got)
+	}
+	// A hostile session id must never escape the state dir.
+	t.Setenv("CLAUDE_SESSION_ID", "../../etc/passwd")
+	if got := sessionID(); strings.ContainsAny(got, "/\\") || strings.HasPrefix(got, ".") {
+		t.Fatalf("sessionID must be filesystem-safe, got %q", got)
+	}
+	// Unset (and the plugin path's unexpanded placeholder) falls back to a pid-scoped id.
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	if got := sessionID(); got != "pid-"+strconv.Itoa(os.Getpid()) {
+		t.Fatalf("pid fallback: %q", got)
+	}
+	t.Setenv("CLAUDE_SESSION_ID", "${CLAUDE_SESSION_ID}")
+	if got := sessionID(); got != "pid-"+strconv.Itoa(os.Getpid()) {
+		t.Fatalf("placeholder must fall back to pid id: %q", got)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"strings"
 	"sync"
 )
@@ -52,6 +53,28 @@ func notification(method string, params any) map[string]any {
 type server struct {
 	out *out
 	cfg Config
+
+	// statePath is set by the inject goroutine once the listener is up and read by main at
+	// shutdown, hence the mutex.
+	stateMu   sync.Mutex
+	statePath string
+}
+
+func (s *server) setStatePath(p string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.statePath = p
+}
+
+// removeStateFile deletes this session's state file so emitters stop discovering a dead
+// listener. Safe to call when no file was ever written.
+func (s *server) removeStateFile() {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.statePath != "" {
+		_ = os.Remove(s.statePath)
+		s.statePath = ""
+	}
 }
 
 func (s *server) serve(r io.Reader) {

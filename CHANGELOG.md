@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.0
+
+Per-session automatic ports + state-file discovery. `edc` runs one process per Claude Code
+session, so a fixed `inject_port` meant only the first session on the machine got a listener.
+
+- `inject_port: "auto"` (or empty) now binds `127.0.0.1:0` (respecting `inject_bind`) and takes
+  the kernel-assigned port, so every session gets its own listener. An explicit numeric port
+  keeps the previous behavior.
+- On listener start, `edc` writes `~/.local/state/edc/<session_id>.json` (`0600`) with
+  `{"port":N,"pid":N,"bind":"..."}` so hooks/emitters can discover the session's port.
+  `<session_id>` comes from `$CLAUDE_SESSION_ID` (the MCP handshake carries no session id),
+  falling back to `pid-<pid>`. Session ids are sanitized to stay filesystem-safe.
+- The state file is removed on clean shutdown (stdin EOF or SIGTERM/SIGINT), and state files
+  orphaned by crashed sessions (dead pid) are reaped at the next `edc` startup.
+- Fail-closed unchanged: no secret ⇒ no listener, ever.
+
 ## v0.1.2
 
 - Fix the plugin load path. Claude Code passes a plugin manifest's `"${EDC_INJECT_PORT}"` through
