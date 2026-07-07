@@ -203,3 +203,50 @@ secret there.
 | `EDC_INJECT_BIND` | `inject_bind` | bind address, default `127.0.0.1` (a Tailscale/LAN IP for remote emitters) |
 | `CLAUDE_SESSION_ID` | — | names the state file `~/.local/state/edc/<session_id>.json`; unset ⇒ `pid-<pid>` |
 | `XDG_STATE_HOME` | — | state dir base, default `~/.local/state` |
+
+## Authorizing delivery (Claude Code channel gates)
+
+Emitting the notification is not enough: **Claude Code gates injected turns behind two explicit
+opt-ins**, and silently drops them otherwise (the MCP log shows `Channel notifications skipped: …`).
+
+1. **Machine-level allowlist (once, requires sudo).** For *installed* plugins, the allowlist is
+   read ONLY from managed settings — user `settings.json` is ignored by design, so a process
+   running as your user can't self-authorize an injection channel:
+
+   ```bash
+   sudo mkdir -p "/Library/Application Support/ClaudeCode" && sudo tee "/Library/Application Support/ClaudeCode/managed-settings.json" > /dev/null <<'JSON'
+   {
+     "allowedChannelPlugins": [
+       { "marketplace": "<your-marketplace>", "plugin": "event-driven-claude" }
+     ]
+   }
+   JSON
+   ```
+
+   The schema is an **array of `{marketplace, plugin}` objects** (not strings). On Linux use
+   `/etc/claude-code/managed-settings.json`.
+
+2. **Per-session opt-in (every launch).** Sessions accept channel turns only when started with:
+
+   ```bash
+   claude --channels "plugin:event-driven-claude@<your-marketplace>"
+   ```
+
+3. **Local dev without install**: load the repo as a session plugin — it gets the reserved
+   `inline` marketplace and skips the managed allowlist, gated by the dev flag instead:
+
+   ```bash
+   claude --plugin-dir /path/to/event-driven-claude \
+     --channels "plugin:event-driven-claude@inline" \
+     --dangerously-load-development-channels "plugin:event-driven-claude@inline"
+   ```
+
+**Verify**: the plugin's MCP log (`~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-plugin-event-driven-claude-*/*.jsonl`)
+should show the channel registered; `Channel notifications skipped: …` means one of the two
+gates is missing. `202` from `/inject` only means edc accepted and emitted the event — delivery
+is decided by these gates on the Claude Code side.
+
+Why so much ceremony: an injected turn is the most direct prompt-injection vector into a session
+with tool access. The double opt-in (admin allowlists the plugin once; each session requests the
+channel explicitly) is what separates "the machine owner decided this" from "something running as
+the user decided it for them". Treat injected turns as untrusted data, never as instructions.
