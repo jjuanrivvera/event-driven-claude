@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,61 @@ type injectRequest struct {
 	Event   string            `json:"event"`   // optional machine-readable key, e.g. "build_failed"
 	Text    string            `json:"text"`    // required human-readable event description
 	Context map[string]string `json:"context"` // optional extra key/values, relayed verbatim
+}
+
+// parseInjectRequest decodes a payload tolerantly (issue #1): unknown top-level fields
+// and non-string context values ride along as context entries instead of failing the
+// request — the mesh round-trip spec attaches reply_to/correlation_id this way — and
+// every rejection names the offending field instead of a bare "invalid JSON".
+func parseInjectRequest(body []byte) (injectRequest, string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return injectRequest{}, "invalid JSON: " + err.Error()
+	}
+	req := injectRequest{Context: map[string]string{}}
+	for k, dst := range map[string]*string{"source": &req.Source, "event": &req.Event, "text": &req.Text} {
+		v, ok := raw[k]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(v, dst); err != nil {
+			return req, "field " + strconv.Quote(k) + " must be a string"
+		}
+		delete(raw, k)
+	}
+	if v, ok := raw["context"]; ok {
+		var ctx map[string]any
+		if err := json.Unmarshal(v, &ctx); err != nil {
+			return req, `field "context" must be an object`
+		}
+		for k, cv := range ctx {
+			req.Context[k] = flattenJSONValue(cv)
+		}
+		delete(raw, "context")
+	}
+	for k, v := range raw {
+		var extra any
+		_ = json.Unmarshal(v, &extra)
+		req.Context[k] = flattenJSONValue(extra)
+	}
+	return req, ""
+}
+
+// flattenJSONValue renders any JSON value as the string meta requires: strings pass
+// through, everything else keeps its JSON encoding ("42", "true", nested objects).
+func flattenJSONValue(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case nil:
+		return ""
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
 }
 
 // runInject binds the local listener, publishes the state file, and serves for the life of
@@ -106,9 +162,9 @@ func (s *server) handleInject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "body too large or unreadable", http.StatusRequestEntityTooLarge)
 		return
 	}
-	var req injectRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	req, errMsg := parseInjectRequest(body)
+	if errMsg != "" {
+		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Text) == "" {

@@ -190,12 +190,14 @@ curl -sS -XPOST "http://127.0.0.1:$PORT/inject" \
 | `text` | yes | human-readable event description; becomes the turn's content |
 | `source` | no | caller-declared origin (e.g. `"CRON"`, `"HA"`); relayed as `meta.injected_by` |
 | `event` | no | machine-readable key (e.g. `"build_failed"`); relayed as `meta.event` |
-| `context` | no | string map, relayed verbatim under `ctx_*`-prefixed meta keys |
+| `context` | no | object, relayed under `ctx_*`-prefixed meta keys; non-string values keep their JSON encoding (`42`, `true`, nested objects) |
+| *(anything else)* | no | unknown top-level fields are accepted and relayed as `ctx_*` too — attach `correlation_id`, `reply_to`, etc. without a schema change |
 
 **Responses**: `202` (accepted, a channel frame was emitted — see
 [the gates](#channel-authorization-the-gates) for why that is not the same as delivered),
-`400` (invalid JSON or missing `text`), `401` (no/wrong secret — no turn is emitted),
-`405` (non-POST), `413` (body over 64 KiB).
+`400` (malformed JSON, wrong field type, or missing `text` — the error names the
+offending field), `401` (no/wrong secret — no turn is emitted), `405` (non-POST),
+`413` (body over 64 KiB).
 
 Arrives in the session as:
 

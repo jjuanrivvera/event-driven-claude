@@ -364,3 +364,43 @@ func TestSessionID(t *testing.T) {
 		t.Fatalf("placeholder must fall back to pid id: %q", got)
 	}
 }
+
+func TestParseInjectRequest_Tolerant(t *testing.T) {
+	// Campos top-level desconocidos sobreviven como context (mesh round-trip spec).
+	req, errMsg := parseInjectRequest([]byte(`{"text":"hi","source":"hub","reply_to":"http://x/inject","correlation_id":"abc","expects_reply":true}`))
+	if errMsg != "" {
+		t.Fatalf("unknown fields must not fail: %s", errMsg)
+	}
+	if req.Context["reply_to"] != "http://x/inject" || req.Context["correlation_id"] != "abc" {
+		t.Fatalf("unknown fields must land in context: %v", req.Context)
+	}
+	if req.Context["expects_reply"] != "true" {
+		t.Fatalf("non-string extras keep their JSON encoding, got %q", req.Context["expects_reply"])
+	}
+
+	// Valores no-string dentro de context ya no rompen el decode (el bug del issue #1).
+	req, errMsg = parseInjectRequest([]byte(`{"text":"x","context":{"user_id":999,"tags":["a","b"],"none":null}}`))
+	if errMsg != "" {
+		t.Fatalf("non-string context values must not fail: %s", errMsg)
+	}
+	if req.Context["user_id"] != "999" || req.Context["tags"] != `["a","b"]` || req.Context["none"] != "" {
+		t.Fatalf("context flattening wrong: %v", req.Context)
+	}
+}
+
+func TestParseInjectRequest_Errors(t *testing.T) {
+	cases := []struct {
+		body string
+		want string
+	}{
+		{`{"text":`, "invalid JSON"},
+		{`{"text":123}`, `field "text" must be a string`},
+		{`{"text":"x","context":"nope"}`, `field "context" must be an object`},
+	}
+	for _, c := range cases {
+		_, errMsg := parseInjectRequest([]byte(c.body))
+		if errMsg == "" || !strings.Contains(errMsg, c.want) {
+			t.Errorf("parse(%s): got %q, want containing %q", c.body, errMsg, c.want)
+		}
+	}
+}
