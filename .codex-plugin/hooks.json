@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc '\"${EDC_ROOT:-$HOME/Repos/jjuanrivvera/edc}/hooks/codex/session_start.sh\"'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc '\"${EDC_ROOT:-$HOME/Repos/jjuanrivvera/edc}/hooks/codex/pre_tool_use.sh\"'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc '\"${EDC_ROOT:-$HOME/Repos/jjuanrivvera/edc}/hooks/codex/stop.sh\"'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

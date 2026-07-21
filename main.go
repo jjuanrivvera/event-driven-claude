@@ -17,7 +17,7 @@ import (
 	"syscall"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 // Config is the inject listener's config. The channel capability itself needs nothing; the
 // HTTP listener is opt-in and fails closed without a secret. Values come from env vars first,

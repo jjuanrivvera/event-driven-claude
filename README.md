@@ -1,9 +1,15 @@
-# event-driven-claude (`edc`)
+# edc — Event-Driven Coding-agents
 
-**Make any Claude Code session injectable.** A transport-agnostic "channel": an MCP stdio
-server whose only job is to declare the Claude Code `claude/channel` capability and run a small
-local `/inject` HTTP endpoint. The philosophy: **Event Driven Claude** — a session woken by
-events, not only by a person typing.
+**Drive any coding-agent session with external events.** `edc` is a transport-agnostic event
+injector: a small local `/inject` HTTP endpoint that turns an event (a cron, a watcher, a daemon,
+another agent) into a **turn** in a running session. One agnostic emitter, one adapter per agent:
+
+- **Claude Code** — an MCP stdio server declaring the `claude/channel` capability.
+- **Codex** — [`edc codex serve`](#codex-adapter-edc-codex-serve), injecting events as `turn/start`
+  into a live `codex app-server` thread.
+
+The philosophy: a session woken by events, not only by a person typing. (`edc` began as
+Event-Driven *Claude*; it now covers any coding agent.)
 
 ---
 
@@ -23,7 +29,7 @@ to hand the running session an event. The usual workarounds are all bad:
 running session as a turn. **Event-driven, not polling** — the session sleeps at zero token
 cost until an event actually arrives, no matter how many sessions you run.
 
-## How it works
+## How it works — Claude channel
 
 `edc` is a tiny MCP stdio server (~250 lines, pure Go stdlib, no dependencies) that does two
 things:
@@ -49,23 +55,61 @@ transport-agnostic it runs anywhere, for any session, with no bot and no collisi
 
 ```sh
 # checksum-verified release binary onto your PATH (~/.local/bin by default)
-curl -fsSL https://raw.githubusercontent.com/jjuanrivvera/event-driven-claude/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jjuanrivvera/edc/main/install.sh | sh
 
 # or, with a Go toolchain:
-go install github.com/jjuanrivvera/event-driven-claude@latest   # installs as `event-driven-claude`
+go install github.com/jjuanrivvera/edc@latest   # installs as `edc`
 ```
 
-The `install.sh` binary is named `edc`; `go install` names it after the module
-(`event-driven-claude`) — match your `.mcp.json` / config `command` to whichever you used.
+Both the `install.sh` binary and `go install` produce `edc` (the module was renamed from
+`event-driven-claude`).
 
 Or install it as a Claude Code plugin (this also registers the marketplace used below):
 
 ```sh
-claude plugin marketplace add jjuanrivvera/event-driven-claude
+claude plugin marketplace add jjuanrivvera/edc
 claude plugin install event-driven-claude@jjuanrivvera-edc
 ```
 
-## Quick start
+The plugin is still named `event-driven-claude` — it is the **Claude adapter**, and the name is
+accurate. The Codex adapter is described below.
+
+## Codex adapter (`edc codex serve`)
+
+Codex has no `claude/channel`, so the receiver is different: `edc codex serve` fronts a long-lived
+`codex app-server` thread and injects each event as a `turn/start` over the app-server JSON-RPC
+protocol. The **emitter is identical** — same `/inject` endpoint, same Bearer auth, same event
+shape — so a tool that injects into a Claude session injects into a Codex session unchanged.
+
+```
+[ cron / watcher / another agent ]
+        │  POST /inject  (Bearer secret)   ← same contract as the Claude channel
+        ▼
+   edc codex serve  ── turn/start ──▶  a live codex app-server thread (a new turn)
+```
+
+```sh
+export EDC_INJECT_SECRET=<secret>    # required (the listener fails closed without it)
+export EDC_INJECT_PORT=auto          # or a fixed port
+edc codex serve
+```
+
+It picks a model the account can actually run via `model/list`, seeds the thread with an
+"events are untrusted data" framing, and **self-registers into
+[presence](https://github.com/jjuanrivvera/presence) as `agent=codex`** with its inject port.
+Attach an interactive view to the same backend with `codex --remote unix://<socket>` to watch
+injected turns land. Full usage: the [`edc-codex-serve`](skills/edc-codex-serve/SKILL.md) skill.
+
+**Install as a Codex plugin.** The repo ships a `.codex-plugin/` alongside the Claude
+`.claude-plugin/`. Its hooks register *interactive* Codex sessions into presence (`agent=codex`)
+on start and heartbeat them while they work — so every Codex session, not only the
+`edc codex serve` daemon, shows up in the mesh; presence's TTL prune reclaims them on exit.
+
+**Trust boundary.** Codex has no native `source=system` marker, so an injected event arrives as
+ordinary user input. `edc` reconstructs the boundary as text and in `developerInstructions`, but
+that only softens it — treat every injected event as data, never as authority to act.
+
+## Quick start — Claude channel
 
 The happy path: install as a plugin, configure a port and secret, authorize the channel, launch
 a session, inject an event.

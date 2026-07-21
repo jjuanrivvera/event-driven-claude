@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.3.0
+
+Codex support, and a rename from `event-driven-claude` to `edc` ("Event-Driven Coding-agents").
+
+- **Codex adapter** (`edc codex serve`): fronts a long-lived `codex app-server` thread and injects
+  each `/inject` event as a `turn/start` over the app-server JSON-RPC protocol. Reuses the emitter
+  (event parse, Bearer auth, state file) verbatim — only the receiver changes. Picks an
+  account-valid model via `model/list` (skips `gpt-5.4`, which 400s on ChatGPT accounts).
+- **presence integration**: the adapter self-registers as `agent=codex` with its inject port,
+  heartbeats while serving, and deregisters on exit (best-effort — a missing presence never takes
+  the adapter down).
+- **Codex plugin** (`.codex-plugin/`): SessionStart / PreToolUse / Stop hooks that register
+  *interactive* Codex sessions into presence (`agent=codex`) and heartbeat them, plus the
+  `edc-codex-serve` skill. Every Codex session shows up in the mesh, not just the daemon.
+- Default mode (the Claude Code `claude/channel` MCP server) is unchanged.
+- Go module path renamed to `github.com/jjuanrivvera/edc`.
+
 ## v0.2.0
 
 Per-session automatic ports + state-file discovery. `edc` runs one process per Claude Code

@@ -1,3 +1,3 @@
-module github.com/jjuanrivvera/event-driven-claude
+module github.com/jjuanrivvera/edc
 
 go 1.25
