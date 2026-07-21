@@ -100,6 +100,15 @@ func firstNonEmpty(vals ...string) string {
 }
 
 func main() {
+	// Subcommands select an adapter. Default (no args) stays the Claude Code channel MCP server,
+	// unchanged, so every existing plugin install keeps working.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "codex":
+			os.Exit(runCodex(os.Args[2:]))
+		}
+	}
+
 	cfg := loadConfig()
 	srv := &server{out: newOut(os.Stdout), cfg: cfg}
 
