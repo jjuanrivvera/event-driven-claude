@@ -1,13 +1,13 @@
 #!/bin/sh
-# install.sh — download the latest edc (event-driven-claude) release binary onto your PATH.
+# install.sh — download the latest edc release binary onto your PATH.
 #
-#   curl -fsSL https://raw.githubusercontent.com/jjuanrivvera/event-driven-claude/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/jjuanrivvera/edc/main/install.sh | sh
 #
 # Override the install dir with EDC_INSTALL_DIR (default ~/.local/bin). Windows: grab the
 # .zip from the releases page instead — this script targets macOS and Linux.
 set -eu
 
-REPO="jjuanrivvera/event-driven-claude"
+REPO="jjuanrivvera/edc"
 BIN="edc"
 INSTALL_DIR="${EDC_INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -28,7 +28,7 @@ esac
 tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | cut -d '"' -f4)"
 [ -n "$tag" ] || { echo "could not resolve the latest release" >&2; exit 1; }
 version="${tag#v}"
-asset="event-driven-claude_${version}_${os}_${arch}.tar.gz"
+asset="edc_${version}_${os}_${arch}.tar.gz"
 base="https://github.com/$REPO/releases/download/$tag"
 
 echo "installing $BIN $tag ($os/$arch)..."

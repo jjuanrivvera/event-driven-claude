@@ -1,5 +1,5 @@
 version: 2
-project_name: event-driven-claude
+project_name: edc
 
 before:
   hooks:
@@ -39,7 +39,7 @@ changelog:
 release:
   github:
     owner: jjuanrivvera
-    name: event-driven-claude
+    name: edc
   footer: |
     ---
     Built with [GoReleaser](https://goreleaser.com).

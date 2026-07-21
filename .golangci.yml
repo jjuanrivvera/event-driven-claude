@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # Errors that are idiomatic to ignore: writes to stdout/stderr/ResponseWriter, flag
+      # parsing (ExitOnError never returns), Close() in defers, io.Copy draining a body.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*flag.FlagSet).Parse
+        - (*encoding/json.Encoder).Encode
+        - (*text/tabwriter.Writer).Flush
+        - io.Copy
+        - (io.Closer).Close
+        - (net.Listener).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (net/http.ResponseWriter).Write
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
