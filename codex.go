@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -317,6 +318,37 @@ func wrapEvent(req injectRequest) string {
 	return b.String()
 }
 
+// --- presence self-registration --------------------------------------------------------------
+//
+// The adapter is a long-lived daemon, so it owns its own presence lifecycle instead of relying on
+// a hook. It tags itself agent=codex so the Hub can route and dedup per agent, and publishes its
+// real inject port so an injectable Codex session is discoverable exactly like a Claude one.
+
+type presenceReg struct {
+	sessionID string
+	port      int
+	cwd       string
+	logger    *log.Logger
+}
+
+func (p *presenceReg) run(args ...string) {
+	cmd := exec.Command("presence", args...)
+	cmd.Env = append(os.Environ(), "PRESENCE_AGENT=codex")
+	if p.cwd != "" {
+		cmd.Dir = p.cwd // register the repo the session actually serves
+	}
+	// Best-effort: an unconfigured or missing presence must never take down the adapter.
+	if out, err := cmd.CombinedOutput(); err != nil {
+		p.logger.Printf("presence %s: %v (%s)", args[0], err, strings.TrimSpace(string(out)))
+	}
+}
+
+func (p *presenceReg) register() {
+	p.run("register", "--agent", "codex", "--session-id", p.sessionID, "--inject-port", strconv.Itoa(p.port))
+}
+func (p *presenceReg) heartbeat()  { p.run("heartbeat", "--session-id", p.sessionID) }
+func (p *presenceReg) deregister() { p.run("deregister", "--session-id", p.sessionID) }
+
 // --- serve command ---------------------------------------------------------------------------
 
 // runCodex is `edc codex serve`: bring up the app-server thread, then run the same authenticated
@@ -358,6 +390,23 @@ func runCodex(args []string) int {
 		_ = client.cmd.Process.Kill()
 		return 1
 	}
+
+	// Own our presence lifecycle: register now, heartbeat while serving, deregister on exit.
+	pres := &presenceReg{sessionID: client.threadID, port: ln.Addr().(*net.TCPAddr).Port, cwd: cwd, logger: logger}
+	pres.register()
+	defer pres.deregister()
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pres.heartbeat()
+			}
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inject", func(w http.ResponseWriter, r *http.Request) {
