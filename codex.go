@@ -328,12 +328,13 @@ type presenceReg struct {
 	sessionID string
 	port      int
 	cwd       string
+	agent     string // "codex" | "opencode" | …
 	logger    *log.Logger
 }
 
 func (p *presenceReg) run(args ...string) {
 	cmd := exec.Command("presence", args...)
-	cmd.Env = append(os.Environ(), "PRESENCE_AGENT=codex")
+	cmd.Env = append(os.Environ(), "PRESENCE_AGENT="+p.agent)
 	if p.cwd != "" {
 		cmd.Dir = p.cwd // register the repo the session actually serves
 	}
@@ -344,7 +345,7 @@ func (p *presenceReg) run(args ...string) {
 }
 
 func (p *presenceReg) register() {
-	p.run("register", "--agent", "codex", "--session-id", p.sessionID, "--inject-port", strconv.Itoa(p.port))
+	p.run("register", "--agent", p.agent, "--session-id", p.sessionID, "--inject-port", strconv.Itoa(p.port))
 }
 func (p *presenceReg) heartbeat()  { p.run("heartbeat", "--session-id", p.sessionID) }
 func (p *presenceReg) deregister() { p.run("deregister", "--session-id", p.sessionID) }
@@ -392,7 +393,7 @@ func runCodex(args []string) int {
 	}
 
 	// Own our presence lifecycle: register now, heartbeat while serving, deregister on exit.
-	pres := &presenceReg{sessionID: client.threadID, port: ln.Addr().(*net.TCPAddr).Port, cwd: cwd, logger: logger}
+	pres := &presenceReg{sessionID: client.threadID, port: ln.Addr().(*net.TCPAddr).Port, cwd: cwd, agent: "codex", logger: logger}
 	pres.register()
 	defer pres.deregister()
 	go func() {

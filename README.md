@@ -7,8 +7,8 @@ another agent) into a **turn** in a running session. One agnostic emitter, one a
 - **Claude Code** — an MCP stdio server declaring the `claude/channel` capability.
 - **Codex** — [`edc codex serve`](#codex-adapter-edc-codex-serve), injecting events as `turn/start`
   into a live `codex app-server` thread.
-- **OpenCode** *(planned)* — [`edc opencode serve`](#opencode-adapter-edc-opencode-serve),
-  injecting events as `POST /session/{id}/message` into a live OpenCode server session.
+- **OpenCode** — [`edc opencode serve`](#opencode-adapter-edc-opencode-serve),
+  injecting events as `POST /session/{id}/prompt_async` into a live OpenCode server session.
 
 The philosophy: a session woken by events, not only by a person typing. (`edc` began as
 Event-Driven *Claude*; it now covers any coding agent.)
@@ -113,9 +113,11 @@ that only softens it — treat every injected event as data, never as authority 
 
 ## OpenCode adapter (`edc opencode serve`)
 
-> **Status: planned.** Researched against the official OpenCode docs + SDK; the adapter and the
-> OpenCode mesh plugin below are not built yet. The mechanism is documented and first-class, so
-> this is the design, not a guess.
+> **Status: built + smoke-tested.** `edc opencode serve` starts an `opencode serve` backend,
+> creates a session, self-registers in presence (`agent=opencode`, with its inject port), and
+> injects events over the HTTP API — verified end-to-end (a `POST /inject` reaches the session and
+> returns 202). A live model *reply* needs your OpenCode account authenticated with a provider/model,
+> like any OpenCode use.
 
 Unlike Codex, OpenCode is **client-server by design**: the interactive TUI is just one HTTP client
 of a local `opencode serve` (Hono, OpenAPI 3.1, default `127.0.0.1:4096`), and any external process
@@ -139,10 +141,13 @@ Mechanism (from the [OpenCode server](https://opencode.ai/docs/server/) + [SDK](
   and injecting a new turn.
 - **State:** subscribe to `GET /event` (SSE) and mirror `session.idle` / tool / permission events
   into presence as idle/busy/blocked.
-- **Registration:** an OpenCode **plugin** (`~/.config/opencode/plugins/mesh.ts`) subscribes to the
-  `session.created` event and runs `presence ttyd spawn` + `presence register --agent opencode`.
-  OpenCode has no reliable process-exit hook, so pair it with a `trap … EXIT` in the tmux launch
-  wrapper for deregistration.
+- **Registration (interactive sessions):** the repo ships an OpenCode **plugin** at
+  [`.opencode-plugin/mesh.ts`](.opencode-plugin/mesh.ts) — copy or symlink it to
+  `~/.config/opencode/plugins/mesh.ts`. It subscribes to `session.created` and runs
+  `presence ttyd spawn` + `presence register --agent opencode`, so an interactive
+  `mesh opencode` session shows up in the cockpit exactly like Claude/Codex. OpenCode has no
+  reliable process-exit hook ([sst/opencode#14863](https://github.com/sst/opencode/issues/14863)),
+  so teardown falls to the tmux launcher + `presence ttyd reap` / TTL prune.
 
 **Known gap.** An externally-injected turn is processed by the model but may not render in the raw
 TUI ([sst/opencode#8564](https://github.com/sst/opencode/issues/8564)). Route visible injects

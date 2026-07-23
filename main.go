@@ -106,6 +106,8 @@ func main() {
 		switch os.Args[1] {
 		case "codex":
 			os.Exit(runCodex(os.Args[2:]))
+		case "opencode":
+			os.Exit(runOpenCode(os.Args[2:]))
 		}
 	}
 
