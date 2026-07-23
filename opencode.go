@@ -34,22 +34,27 @@ type opencodeClient struct {
 	base    string // http://127.0.0.1:PORT
 	hc      *http.Client
 	auth    string    // "Basic …" (OPENCODE_SERVER_PASSWORD) or ""
-	session string    // ses_…
+	session string    // ses_… (daemon mode only; TUI mode uses the attached TUI's active session)
 	model   string    // optional explicit model (EDC_OPENCODE_MODEL)
 	agent   string    // optional explicit agent (EDC_OPENCODE_AGENT)
+	tui     bool      // TUI mode: inject into the attached interactive TUI via /tui/* (visible)
 	serve   *exec.Cmd // the spawned `opencode serve`, or nil if we connect to an existing one
 	logger  *log.Logger
 }
 
 // newOpenCodeClient connects to EDC_OPENCODE_URL if set, else spawns `opencode serve` on a free
 // port (Dir=cwd so created sessions belong to the target repo) and waits until it is healthy.
-func newOpenCodeClient(cwd, model, agent, password string, logger *log.Logger) (*opencodeClient, error) {
-	c := &opencodeClient{hc: &http.Client{Timeout: 30 * time.Second}, model: model, agent: agent, logger: logger}
+// In TUI mode it never spawns — it attaches to the already-running server (EDC_OPENCODE_URL
+// required) that an interactive `opencode attach` shares, and injects into that live TUI.
+func newOpenCodeClient(cwd, model, agent, password string, tui bool, logger *log.Logger) (*opencodeClient, error) {
+	c := &opencodeClient{hc: &http.Client{Timeout: 30 * time.Second}, model: model, agent: agent, tui: tui, logger: logger}
 	if password != "" {
 		c.auth = "Basic " + base64.StdEncoding.EncodeToString([]byte("opencode:"+password))
 	}
 	if url := os.Getenv("EDC_OPENCODE_URL"); url != "" {
 		c.base = strings.TrimRight(url, "/")
+	} else if tui {
+		return nil, fmt.Errorf("TUI mode requires EDC_OPENCODE_URL (the shared opencode server)")
 	} else {
 		port, err := freeTCPPort()
 		if err != nil {
@@ -154,9 +159,14 @@ func (c *opencodeClient) messageBody(text string) map[string]any {
 	return body
 }
 
-// injectTurn posts the event as a fire-and-forget turn (prompt_async) so /inject returns
-// immediately instead of blocking for the whole model turn.
+// injectTurn delivers the event as a turn. In TUI mode it drives the attached interactive TUI
+// (/tui/append-prompt + /tui/submit-prompt) so the human *sees* the injected turn land in the
+// session they're watching — the workaround for OpenCode not rendering prompt_async turns
+// (sst/opencode#8564). In daemon mode it posts prompt_async to its own headless session.
 func (c *opencodeClient) injectTurn(ctx context.Context, req injectRequest) error {
+	if c.tui {
+		return c.tuiInject(ctx, wrapEvent(req))
+	}
 	if c.session == "" {
 		return fmt.Errorf("no active session")
 	}
@@ -166,6 +176,22 @@ func (c *opencodeClient) injectTurn(ctx context.Context, req injectRequest) erro
 	}
 	if code >= 300 {
 		return fmt.Errorf("prompt_async HTTP %d: %s", code, truncate(string(out), 200))
+	}
+	return nil
+}
+
+// tuiInject types the event into the attached TUI's prompt box and submits it, so it renders in
+// the human's view and runs against whatever session/agent/model the TUI currently has active.
+func (c *opencodeClient) tuiInject(ctx context.Context, text string) error {
+	if out, code, err := c.do(ctx, http.MethodPost, "/tui/append-prompt", map[string]any{"text": text}); err != nil {
+		return err
+	} else if code >= 300 {
+		return fmt.Errorf("append-prompt HTTP %d: %s", code, truncate(string(out), 200))
+	}
+	if out, code, err := c.do(ctx, http.MethodPost, "/tui/submit-prompt", map[string]any{}); err != nil {
+		return err
+	} else if code >= 300 {
+		return fmt.Errorf("submit-prompt HTTP %d: %s", code, truncate(string(out), 200))
 	}
 	return nil
 }
@@ -202,24 +228,31 @@ func runOpenCode(args []string) int {
 	model := os.Getenv("EDC_OPENCODE_MODEL")
 	agent := os.Getenv("EDC_OPENCODE_AGENT")
 	password := os.Getenv("OPENCODE_SERVER_PASSWORD")
+	// TUI mode: attach to a shared opencode server (the interactive `opencode attach` session) and
+	// inject into it visibly, instead of spawning a headless server + session.
+	tui := os.Getenv("EDC_OPENCODE_TUI") != ""
 
 	ctx, stop := signalContext()
 	defer stop()
 
-	client, err := newOpenCodeClient(cwd, model, agent, password, logger)
+	client, err := newOpenCodeClient(cwd, model, agent, password, tui, logger)
 	if err != nil {
 		logger.Printf("opencode: %v", err)
 		return 1
 	}
-	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	err = client.startSession(sctx)
-	cancel()
-	if err != nil {
-		logger.Printf("opencode: bootstrap failed: %v", err)
-		client.kill()
-		return 1
+	if tui {
+		logger.Printf("opencode: TUI mode — injecting into the attached session at %s", client.base)
+	} else {
+		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err = client.startSession(sctx)
+		cancel()
+		if err != nil {
+			logger.Printf("opencode: bootstrap failed: %v", err)
+			client.kill()
+			return 1
+		}
+		logger.Printf("opencode: server %s session %s ready", client.base, client.session)
 	}
-	logger.Printf("opencode: server %s session %s ready", client.base, client.session)
 
 	ln, err := bindInject(cfg, logger)
 	if err != nil {
@@ -228,22 +261,26 @@ func runOpenCode(args []string) int {
 		return 1
 	}
 
-	// Own our presence lifecycle: register now, heartbeat while serving, deregister on exit.
-	pres := &presenceReg{sessionID: client.session, port: ln.Addr().(*net.TCPAddr).Port, cwd: cwd, agent: "opencode", logger: logger}
-	pres.register()
-	defer pres.deregister()
-	go func() {
-		t := time.NewTicker(30 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				pres.heartbeat()
+	// Daemon mode owns its presence lifecycle (register/heartbeat/deregister). TUI mode leaves that
+	// to the OpenCode plugin — it knows the real interactive session id and reads the inject port
+	// from EDC_INJECT_PORT (which the launcher fixes for both this process and the TUI).
+	if !tui {
+		pres := &presenceReg{sessionID: client.session, port: ln.Addr().(*net.TCPAddr).Port, cwd: cwd, agent: "opencode", logger: logger}
+		pres.register()
+		defer pres.deregister()
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					pres.heartbeat()
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/inject", func(w http.ResponseWriter, r *http.Request) {

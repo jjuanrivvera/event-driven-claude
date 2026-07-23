@@ -149,10 +149,14 @@ Mechanism (from the [OpenCode server](https://opencode.ai/docs/server/) + [SDK](
   reliable process-exit hook ([sst/opencode#14863](https://github.com/sst/opencode/issues/14863)),
   so teardown falls to the tmux launcher + `presence ttyd reap` / TTL prune.
 
-**Known gap.** An externally-injected turn is processed by the model but may not render in the raw
-TUI ([sst/opencode#8564](https://github.com/sst/opencode/issues/8564)). Route visible injects
-through `POST /tui/appendPrompt` + `/tui/submitPrompt` (enters as if typed), or watch via the
-presence cockpit / SSE rather than the raw TUI.
+**Known gap → solved for interactive sessions.** An externally-injected turn is processed by the
+model but may not render in the raw TUI ([sst/opencode#8564](https://github.com/sst/opencode/issues/8564)).
+`edc opencode serve` in **TUI mode** (`EDC_OPENCODE_TUI=1` + `EDC_OPENCODE_URL=<shared server>`)
+works around it: instead of `prompt_async`, it types each `/inject` event into the attached session
+via `POST /tui/append-prompt` + `/tui/submit-prompt`, so the human **sees** the turn land.
+`presence`'s `mesh opencode [dir]` wires this automatically — a decoupled `opencode serve` +
+`opencode attach` + a TUI-mode sidecar on a fixed inject port — making an interactive OpenCode
+session attachable **and** injectable via `edc /inject`.
 
 **Trust boundary.** Like Codex, OpenCode has no native `source=system` marker — an injected event
 arrives as ordinary user input. `edc` reconstructs the boundary in text, but treat every injected
