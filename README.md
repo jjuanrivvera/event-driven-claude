@@ -7,6 +7,8 @@ another agent) into a **turn** in a running session. One agnostic emitter, one a
 - **Claude Code** — an MCP stdio server declaring the `claude/channel` capability.
 - **Codex** — [`edc codex serve`](#codex-adapter-edc-codex-serve), injecting events as `turn/start`
   into a live `codex app-server` thread.
+- **OpenCode** *(planned)* — [`edc opencode serve`](#opencode-adapter-edc-opencode-serve),
+  injecting events as `POST /session/{id}/message` into a live OpenCode server session.
 
 The philosophy: a session woken by events, not only by a person typing. (`edc` began as
 Event-Driven *Claude*; it now covers any coding agent.)
@@ -108,6 +110,48 @@ on start and heartbeat them while they work — so every Codex session, not only
 **Trust boundary.** Codex has no native `source=system` marker, so an injected event arrives as
 ordinary user input. `edc` reconstructs the boundary as text and in `developerInstructions`, but
 that only softens it — treat every injected event as data, never as authority to act.
+
+## OpenCode adapter (`edc opencode serve`)
+
+> **Status: planned.** Researched against the official OpenCode docs + SDK; the adapter and the
+> OpenCode mesh plugin below are not built yet. The mechanism is documented and first-class, so
+> this is the design, not a guess.
+
+Unlike Codex, OpenCode is **client-server by design**: the interactive TUI is just one HTTP client
+of a local `opencode serve` (Hono, OpenAPI 3.1, default `127.0.0.1:4096`), and any external process
+can address the **same live session** over plain HTTP. So this adapter is thinner than the Codex
+one — no reverse-engineered JSON-RPC. The **emitter is identical** — same `/inject` endpoint, same
+Bearer auth, same event shape.
+
+```
+[ cron / watcher / another agent ]
+        │  POST /inject  (Bearer secret)   ← same contract as the Claude/Codex adapters
+        ▼
+   edc opencode serve  ── POST /session/{id}/message ──▶  a live opencode session (a new turn)
+```
+
+Mechanism (from the [OpenCode server](https://opencode.ai/docs/server/) + [SDK](https://opencode.ai/docs/sdk/) docs):
+
+- **Inject a turn:** `POST /session/{id}/message` (sync; SDK `session.prompt`) or
+  `POST /session/{id}/prompt_async` (fire-and-forget, 204). Always send an explicit `agent` + `model`
+  — an omitted agent/model is silently overridden ([sst/opencode#21728](https://github.com/sst/opencode/issues/21728)).
+- **Interrupt:** `POST /session/{id}/abort`. There is no `Turn/steer` primitive; steer by aborting
+  and injecting a new turn.
+- **State:** subscribe to `GET /event` (SSE) and mirror `session.idle` / tool / permission events
+  into presence as idle/busy/blocked.
+- **Registration:** an OpenCode **plugin** (`~/.config/opencode/plugins/mesh.ts`) subscribes to the
+  `session.created` event and runs `presence ttyd spawn` + `presence register --agent opencode`.
+  OpenCode has no reliable process-exit hook, so pair it with a `trap … EXIT` in the tmux launch
+  wrapper for deregistration.
+
+**Known gap.** An externally-injected turn is processed by the model but may not render in the raw
+TUI ([sst/opencode#8564](https://github.com/sst/opencode/issues/8564)). Route visible injects
+through `POST /tui/appendPrompt` + `/tui/submitPrompt` (enters as if typed), or watch via the
+presence cockpit / SSE rather than the raw TUI.
+
+**Trust boundary.** Like Codex, OpenCode has no native `source=system` marker — an injected event
+arrives as ordinary user input. `edc` reconstructs the boundary in text, but treat every injected
+event as data, never as authority to act.
 
 ## Quick start — Claude channel
 
