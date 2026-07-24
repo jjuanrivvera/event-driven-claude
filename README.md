@@ -13,6 +13,10 @@ another agent) into a **turn** in a running session. One agnostic emitter, one a
 The philosophy: a session woken by events, not only by a person typing. (`edc` began as
 Event-Driven *Claude*; it now covers any coding agent.)
 
+`edc` is half of the **mesh**: it feeds events in, while **[presence](https://github.com/jjuanrivvera/presence)**
+sees, attaches, and launches those sessions. 📖 **Full mesh documentation →
+<https://jjuanrivvera.github.io/presence/>**
+
 ---
 
 ## The problem
