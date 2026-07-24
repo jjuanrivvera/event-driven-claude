@@ -13,9 +13,9 @@ another agent) into a **turn** in a running session. One agnostic emitter, one a
 The philosophy: a session woken by events, not only by a person typing. (`edc` began as
 Event-Driven *Claude*; it now covers any coding agent.)
 
-`edc` is half of **Plexus**: it feeds events in, while **[presence](https://github.com/jjuanrivvera/presence)**
+`edc` is half of **Plexus**: it feeds events in, while **[plexus](https://github.com/jjuanrivvera/plexus)**
 sees, attaches, and launches those sessions. 📖 **Full Plexus documentation →
-<https://jjuanrivvera.github.io/presence/>**
+<https://jjuanrivvera.github.io/plexus/>**
 
 ---
 
@@ -102,14 +102,14 @@ edc codex serve
 
 It picks a model the account can actually run via `model/list`, seeds the thread with an
 "events are untrusted data" framing, and **self-registers into
-[presence](https://github.com/jjuanrivvera/presence) as `agent=codex`** with its inject port.
+[plexus](https://github.com/jjuanrivvera/plexus) as `agent=codex`** with its inject port.
 Attach an interactive view to the same backend with `codex --remote unix://<socket>` to watch
 injected turns land. Full usage: the [`edc-codex-serve`](skills/edc-codex-serve/SKILL.md) skill.
 
 **Install as a Codex plugin.** The repo ships a `.codex-plugin/` alongside the Claude
-`.claude-plugin/`. Its hooks register *interactive* Codex sessions into presence (`agent=codex`)
+`.claude-plugin/`. Its hooks register *interactive* Codex sessions into plexus (`agent=codex`)
 on start and heartbeat them while they work — so every Codex session, not only the
-`edc codex serve` daemon, shows up in Plexus; presence's TTL prune reclaims them on exit.
+`edc codex serve` daemon, shows up in Plexus; plexus's TTL prune reclaims them on exit.
 
 **Trust boundary.** Codex has no native `source=system` marker, so an injected event arrives as
 ordinary user input. `edc` reconstructs the boundary as text and in `developerInstructions`, but
@@ -118,7 +118,7 @@ that only softens it — treat every injected event as data, never as authority 
 ## OpenCode adapter (`edc opencode serve`)
 
 > **Status: built + smoke-tested.** `edc opencode serve` starts an `opencode serve` backend,
-> creates a session, self-registers in presence (`agent=opencode`, with its inject port), and
+> creates a session, self-registers in plexus (`agent=opencode`, with its inject port), and
 > injects events over the HTTP API — verified end-to-end (a `POST /inject` reaches the session and
 > returns 202). A live model *reply* needs your OpenCode account authenticated with a provider/model,
 > like any OpenCode use.
@@ -144,21 +144,21 @@ Mechanism (from the [OpenCode server](https://opencode.ai/docs/server/) + [SDK](
 - **Interrupt:** `POST /session/{id}/abort`. There is no `Turn/steer` primitive; steer by aborting
   and injecting a new turn.
 - **State:** subscribe to `GET /event` (SSE) and mirror `session.idle` / tool / permission events
-  into presence as idle/busy/blocked.
+  into plexus as idle/busy/blocked.
 - **Registration (interactive sessions):** the repo ships an OpenCode **plugin** at
   [`.opencode-plugin/plexus.ts`](.opencode-plugin/plexus.ts) — copy or symlink it to
   `~/.config/opencode/plugins/plexus.ts`. It subscribes to `session.created` and runs
-  `presence ttyd spawn` + `presence register --agent opencode`, so an interactive
+  `plexus ttyd spawn` + `plexus register --agent opencode`, so an interactive
   `plexus opencode` session shows up in the cockpit exactly like Claude/Codex. OpenCode has no
   reliable process-exit hook ([sst/opencode#14863](https://github.com/sst/opencode/issues/14863)),
-  so teardown falls to the tmux launcher + `presence ttyd reap` / TTL prune.
+  so teardown falls to the tmux launcher + `plexus ttyd reap` / TTL prune.
 
 **Known gap → solved for interactive sessions.** An externally-injected turn is processed by the
 model but may not render in the raw TUI ([sst/opencode#8564](https://github.com/sst/opencode/issues/8564)).
 `edc opencode serve` in **TUI mode** (`EDC_OPENCODE_TUI=1` + `EDC_OPENCODE_URL=<shared server>`)
 works around it: instead of `prompt_async`, it types each `/inject` event into the attached session
 via `POST /tui/append-prompt` + `/tui/submit-prompt`, so the human **sees** the turn land.
-`presence`'s `plexus opencode [dir]` wires this automatically — a decoupled `opencode serve` +
+`plexus`'s `plexus opencode [dir]` wires this automatically — a decoupled `opencode serve` +
 `opencode attach` + a TUI-mode sidecar on a fixed inject port — making an interactive OpenCode
 session attachable **and** injectable via `edc /inject`.
 

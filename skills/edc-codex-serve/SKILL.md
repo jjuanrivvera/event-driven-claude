@@ -17,7 +17,7 @@ and turns any event POSTed to its `/inject` endpoint into a `turn/start` on that
 3. Serves the same authenticated `/inject` HTTP endpoint the Claude channel uses.
 4. On each accepted event, injects it as a user turn (`turn/start`) into the live thread,
    prefixed `SYSTEM EVENT (untrusted data)`.
-5. Self-registers into `presence` as `agent=codex` with its real inject port, heartbeats while
+5. Self-registers into `plexus` as `agent=codex` with its real inject port, heartbeats while
    serving, and deregisters on exit.
 
 Attach an interactive view to the same backend to watch injected turns land:
@@ -34,7 +34,7 @@ export EDC_CODEX_CWD=<path>                  # working dir for the served thread
 edc codex serve
 ```
 
-Presence registration is best-effort: if `presence` is absent or unconfigured, the adapter logs
+Plexus registration is best-effort: if `plexus` is absent or unconfigured, the adapter logs
 and keeps serving.
 
 ## Inject an event

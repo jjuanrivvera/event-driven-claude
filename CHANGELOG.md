@@ -3,8 +3,8 @@
 ## v0.5.0
 
 **Plexus.** edc is one half of **Plexus** (with
-[`presence`](https://github.com/jjuanrivvera/presence)) — and it stays a fully independent binary
-you can use on its own to make any coding-agent session injectable, with or without presence.
+[`plexus`](https://github.com/jjuanrivvera/plexus)) — and it stays a fully independent binary
+you can use on its own to make any coding-agent session injectable, with or without plexus.
 
 - OpenCode plugin renamed `mesh.ts` → `plexus.ts` (drop it into `~/.config/opencode/plugins/`); the
   Codex plugin and all product references move to Plexus.
@@ -22,11 +22,11 @@ Codex support, and a rename from `event-driven-claude` to `edc` ("Event-Driven C
   each `/inject` event as a `turn/start` over the app-server JSON-RPC protocol. Reuses the emitter
   (event parse, Bearer auth, state file) verbatim — only the receiver changes. Picks an
   account-valid model via `model/list` (skips `gpt-5.4`, which 400s on ChatGPT accounts).
-- **presence integration**: the adapter self-registers as `agent=codex` with its inject port,
-  heartbeats while serving, and deregisters on exit (best-effort — a missing presence never takes
+- **plexus integration**: the adapter self-registers as `agent=codex` with its inject port,
+  heartbeats while serving, and deregisters on exit (best-effort — a missing plexus never takes
   the adapter down).
 - **Codex plugin** (`.codex-plugin/`): SessionStart / PreToolUse / Stop hooks that register
-  *interactive* Codex sessions into presence (`agent=codex`) and heartbeat them, plus the
+  *interactive* Codex sessions into plexus (`agent=codex`) and heartbeat them, plus the
   `edc-codex-serve` skill. Every Codex session shows up in the mesh, not just the daemon.
 - Default mode (the Claude Code `claude/channel` MCP server) is unchanged.
 - Go module path renamed to `github.com/jjuanrivvera/edc`.
