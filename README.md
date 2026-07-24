@@ -13,8 +13,8 @@ another agent) into a **turn** in a running session. One agnostic emitter, one a
 The philosophy: a session woken by events, not only by a person typing. (`edc` began as
 Event-Driven *Claude*; it now covers any coding agent.)
 
-`edc` is half of the **mesh**: it feeds events in, while **[presence](https://github.com/jjuanrivvera/presence)**
-sees, attaches, and launches those sessions. 📖 **Full mesh documentation →
+`edc` is half of **Plexus**: it feeds events in, while **[presence](https://github.com/jjuanrivvera/presence)**
+sees, attaches, and launches those sessions. 📖 **Full Plexus documentation →
 <https://jjuanrivvera.github.io/presence/>**
 
 ---
@@ -109,7 +109,7 @@ injected turns land. Full usage: the [`edc-codex-serve`](skills/edc-codex-serve/
 **Install as a Codex plugin.** The repo ships a `.codex-plugin/` alongside the Claude
 `.claude-plugin/`. Its hooks register *interactive* Codex sessions into presence (`agent=codex`)
 on start and heartbeat them while they work — so every Codex session, not only the
-`edc codex serve` daemon, shows up in the mesh; presence's TTL prune reclaims them on exit.
+`edc codex serve` daemon, shows up in Plexus; presence's TTL prune reclaims them on exit.
 
 **Trust boundary.** Codex has no native `source=system` marker, so an injected event arrives as
 ordinary user input. `edc` reconstructs the boundary as text and in `developerInstructions`, but
@@ -146,10 +146,10 @@ Mechanism (from the [OpenCode server](https://opencode.ai/docs/server/) + [SDK](
 - **State:** subscribe to `GET /event` (SSE) and mirror `session.idle` / tool / permission events
   into presence as idle/busy/blocked.
 - **Registration (interactive sessions):** the repo ships an OpenCode **plugin** at
-  [`.opencode-plugin/mesh.ts`](.opencode-plugin/mesh.ts) — copy or symlink it to
-  `~/.config/opencode/plugins/mesh.ts`. It subscribes to `session.created` and runs
+  [`.opencode-plugin/plexus.ts`](.opencode-plugin/plexus.ts) — copy or symlink it to
+  `~/.config/opencode/plugins/plexus.ts`. It subscribes to `session.created` and runs
   `presence ttyd spawn` + `presence register --agent opencode`, so an interactive
-  `mesh opencode` session shows up in the cockpit exactly like Claude/Codex. OpenCode has no
+  `plexus opencode` session shows up in the cockpit exactly like Claude/Codex. OpenCode has no
   reliable process-exit hook ([sst/opencode#14863](https://github.com/sst/opencode/issues/14863)),
   so teardown falls to the tmux launcher + `presence ttyd reap` / TTL prune.
 
@@ -158,7 +158,7 @@ model but may not render in the raw TUI ([sst/opencode#8564](https://github.com/
 `edc opencode serve` in **TUI mode** (`EDC_OPENCODE_TUI=1` + `EDC_OPENCODE_URL=<shared server>`)
 works around it: instead of `prompt_async`, it types each `/inject` event into the attached session
 via `POST /tui/append-prompt` + `/tui/submit-prompt`, so the human **sees** the turn land.
-`presence`'s `mesh opencode [dir]` wires this automatically — a decoupled `opencode serve` +
+`presence`'s `plexus opencode [dir]` wires this automatically — a decoupled `opencode serve` +
 `opencode attach` + a TUI-mode sidecar on a fixed inject port — making an interactive OpenCode
 session attachable **and** injectable via `edc /inject`.
 

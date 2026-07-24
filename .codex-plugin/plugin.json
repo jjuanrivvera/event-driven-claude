@@ -1,7 +1,7 @@
 {
   "name": "edc",
   "version": "0.3.0",
-  "description": "Event-Driven Coding-agents — registers Codex sessions into the presence mesh (agent=codex) and documents the `edc codex serve` adapter that drives a live Codex session from external events.",
+  "description": "Event-Driven Coding-agents — registers Codex sessions into Plexus (agent=codex) and documents the `edc codex serve` adapter that drives a live Codex session from external events.",
   "skills": "./skills/",
   "hooks": "./.codex-plugin/hooks.json"
 }

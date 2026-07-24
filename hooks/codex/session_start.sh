@@ -5,7 +5,7 @@
 # Silent and fail-soft — a missing/unconfigured presence must never block or break the session.
 #
 # Interactive Codex sessions carry no /inject listener, so they register with inject_port=0:
-# discoverable in the mesh (dedup, awareness) but not an injection target. The always-on
+# discoverable in Plexus (dedup, awareness) but not an injection target. The always-on
 # injectable Codex session is the `edc codex serve` daemon, which self-registers with a real port.
 #
 # Cleanup of the ttyd is left to `presence ttyd reap` (it runs on every spawn and drops

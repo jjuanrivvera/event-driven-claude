@@ -37,7 +37,7 @@ type injectRequest struct {
 
 // parseInjectRequest decodes a payload tolerantly (issue #1): unknown top-level fields
 // and non-string context values ride along as context entries instead of failing the
-// request — the mesh round-trip spec attaches reply_to/correlation_id this way — and
+// request — the round-trip spec attaches reply_to/correlation_id this way — and
 // every rejection names the offending field instead of a bare "invalid JSON".
 func parseInjectRequest(body []byte) (injectRequest, string) {
 	var raw map[string]json.RawMessage

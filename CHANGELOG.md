@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.0
+
+**Plexus.** edc is one half of **Plexus** (with
+[`presence`](https://github.com/jjuanrivvera/presence)) — and it stays a fully independent binary
+you can use on its own to make any coding-agent session injectable, with or without presence.
+
+- OpenCode plugin renamed `mesh.ts` → `plexus.ts` (drop it into `~/.config/opencode/plugins/`); the
+  Codex plugin and all product references move to Plexus.
+- **LICENSE**: MIT.
+
+Earlier `v0.4.x` tags shipped without changelog notes; they brought the OpenCode adapter
+(`edc opencode serve`, daemon and TUI-inject modes) with decoupled `opencode serve` launch and
+inject-port fixes.
+
 ## v0.3.0
 
 Codex support, and a rename from `event-driven-claude` to `edc` ("Event-Driven Coding-agents").

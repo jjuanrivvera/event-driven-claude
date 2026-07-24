@@ -366,7 +366,7 @@ func TestSessionID(t *testing.T) {
 }
 
 func TestParseInjectRequest_Tolerant(t *testing.T) {
-	// Campos top-level desconocidos sobreviven como context (mesh round-trip spec).
+	// Campos top-level desconocidos sobreviven como context (Plexus round-trip spec).
 	req, errMsg := parseInjectRequest([]byte(`{"text":"hi","source":"hub","reply_to":"http://x/inject","correlation_id":"abc","expects_reply":true}`))
 	if errMsg != "" {
 		t.Fatalf("unknown fields must not fail: %s", errMsg)

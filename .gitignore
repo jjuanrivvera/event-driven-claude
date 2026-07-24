@@ -2,3 +2,4 @@
 /edc-*
 *.out
 /dist/
+/event-driven-claude
